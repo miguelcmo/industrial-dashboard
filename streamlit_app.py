@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
+import matplotlib.pyplot as plt
+import seaborn as sns
 from datetime import datetime, timedelta
 import time
+import altair as alt
 
 # Configuración de la página
 st.set_page_config(
@@ -180,58 +180,94 @@ if not datos_filtrados.empty:
     # Gráficos principales
     st.markdown("## 📈 Tendencias de Variables")
     
-    # Crear subplots
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=[var.replace('_', ' ').title() for var in variables_seleccionadas[:4]],
-        specs=[[{"secondary_y": False}, {"secondary_y": False}],
-               [{"secondary_y": False}, {"secondary_y": False}]]
-    )
-    
-    colores = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-    
-    for i, variable in enumerate(variables_seleccionadas[:4]):
-        row = i // 2 + 1
-        col = i % 2 + 1
+    # Crear gráficos usando matplotlib y streamlit
+    if len(variables_seleccionadas) > 0:
+        cols_graficos = st.columns(2)
         
-        fig.add_trace(
-            go.Scatter(
-                x=datos_filtrados['Fecha'],
-                y=datos_filtrados[variable],
-                mode='lines',
-                name=variable.replace('_', ' ').title(),
-                line=dict(color=colores[i], width=3),
-                fill='tonexty' if i > 0 else None,
-                fillcolor=f'rgba{tuple(list(px.colors.hex_to_rgb(colores[i])) + [0.1])}'
-            ),
-            row=row, col=col
+        for i, variable in enumerate(variables_seleccionadas[:4]):
+            col_idx = i % 2
+            
+            with cols_graficos[col_idx]:
+                # Crear gráfico con Altair (incluido en Streamlit)
+                chart = alt.Chart(datos_filtrados).mark_line(
+                    point=True,
+                    strokeWidth=3
+                ).add_selection(
+                    alt.selection_interval()
+                ).encode(
+                    x=alt.X('Fecha:T', title='Tiempo'),
+                    y=alt.Y(f'{variable}:Q', title=variable.replace('_', ' ').title()),
+                    color=alt.value('#1f77b4'),
+                    tooltip=['Fecha:T', f'{variable}:Q']
+                ).properties(
+                    width=350,
+                    height=250,
+                    title=variable.replace('_', ' ').title()
+                ).interactive()
+                
+                st.altair_chart(chart, use_container_width=True)
+    
+    # Gráfico de líneas combinado
+    st.markdown("### 📊 Vista Combinada de Variables")
+    
+    if len(variables_seleccionadas) >= 2:
+        # Preparar datos para gráfico combinado
+        datos_melted = datos_filtrados.melt(
+            id_vars=['Fecha'], 
+            value_vars=variables_seleccionadas[:4],
+            var_name='Variable',
+            value_name='Valor'
         )
+        
+        # Normalizar valores para comparación
+        for var in variables_seleccionadas[:4]:
+            if var in datos_filtrados.columns:
+                datos_melted.loc[datos_melted['Variable'] == var, 'Valor_Norm'] = (
+                    (datos_melted.loc[datos_melted['Variable'] == var, 'Valor'] - 
+                     datos_filtrados[var].min()) / 
+                    (datos_filtrados[var].max() - datos_filtrados[var].min()) * 100
+                )
+        
+        chart_combined = alt.Chart(datos_melted).mark_line(strokeWidth=2).encode(
+            x=alt.X('Fecha:T', title='Tiempo'),
+            y=alt.Y('Valor_Norm:Q', title='Valor Normalizado (0-100%)'),
+            color=alt.Color('Variable:N', title='Variables'),
+            tooltip=['Fecha:T', 'Variable:N', 'Valor:Q', 'Valor_Norm:Q']
+        ).properties(
+            width=800,
+            height=400,
+            title='Tendencias Normalizadas de Variables Industriales'
+        ).interactive()
+        
+        st.altair_chart(chart_combined, use_container_width=True)
     
-    fig.update_layout(
-        height=600,
-        title_text="Monitoreo de Variables Industriales",
-        showlegend=True,
-        template='plotly_dark',
-        font=dict(size=12)
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Gráfico de correlación
+    # Matriz de correlación
     st.markdown("## 🔍 Análisis de Correlación")
     
     # Seleccionar solo variables numéricas
     variables_numericas = datos_filtrados.select_dtypes(include=[np.number]).columns.tolist()
-    matriz_correlacion = datos_filtrados[variables_numericas].corr()
-    
-    fig_corr = px.imshow(
-        matriz_correlacion,
-        title="Matriz de Correlación de Variables",
-        color_continuous_scale='RdBu',
-        aspect='auto'
-    )
-    
-    st.plotly_chart(fig_corr, use_container_width=True)
+    if len(variables_numericas) > 1:
+        matriz_correlacion = datos_filtrados[variables_numericas].corr()
+        
+        # Crear heatmap con matplotlib
+        fig_corr, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(
+            matriz_correlacion, 
+            annot=True, 
+            cmap='RdBu_r', 
+            center=0,
+            square=True,
+            fmt='.2f',
+            cbar_kws={"shrink": .8}
+        )
+        plt.title('Matriz de Correlación de Variables', fontsize=16, pad=20)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        
+        st.pyplot(fig_corr)
+    else:
+        st.info("Se necesitan al menos 2 variables numéricas para calcular correlaciones.")
     
     # Tabla de alarmas
     st.markdown("## 🚨 Sistema de Alarmas")
@@ -282,30 +318,44 @@ if not datos_filtrados.empty:
         if 'Eficiencia_Proceso' in datos_filtrados.columns:
             eficiencia_promedio = datos_filtrados['Eficiencia_Proceso'].mean()
             
-            fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number+delta",
-                value = eficiencia_promedio,
-                domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "Eficiencia del Proceso (%)"},
-                delta = {'reference': 85},
-                gauge = {
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 70], 'color': "lightgray"},
-                        {'range': [70, 85], 'color': "yellow"},
-                        {'range': [85, 100], 'color': "green"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 90
-                    }
-                }
-            ))
+            # Crear gauge simple con progress bar
+            st.markdown("#### Eficiencia del Proceso")
+            st.progress(eficiencia_promedio / 100)
             
-            fig_gauge.update_layout(height=300)
-            st.plotly_chart(fig_gauge, use_container_width=True)
+            # Mostrar valor numérico
+            col_eff1, col_eff2, col_eff3 = st.columns(3)
+            with col_eff1:
+                st.metric("Eficiencia Actual", f"{eficiencia_promedio:.1f}%")
+            with col_eff2:
+                target = 85
+                delta = eficiencia_promedio - target
+                st.metric("vs Objetivo", f"{target}%", f"{delta:.1f}%")
+            with col_eff3:
+                if eficiencia_promedio >= 90:
+                    estado_eficiencia = "🟢 Excelente"
+                elif eficiencia_promedio >= 80:
+                    estado_eficiencia = "🟡 Bueno"
+                else:
+                    estado_eficiencia = "🔴 Crítico"
+                st.metric("Estado", estado_eficiencia)
+            
+            # Histograma de eficiencia
+            st.markdown("#### Distribución de Eficiencia")
+            
+            chart_hist = alt.Chart(datos_filtrados).mark_bar(
+                opacity=0.7,
+                binSpacing=2
+            ).encode(
+                x=alt.X('Eficiencia_Proceso:Q', bin=alt.Bin(maxbins=20), title='Eficiencia (%)'),
+                y=alt.Y('count()', title='Frecuencia'),
+                color=alt.value('#2E86AB')
+            ).properties(
+                width=400,
+                height=200,
+                title='Distribución de Valores de Eficiencia'
+            )
+            
+            st.altair_chart(chart_hist, use_container_width=True)
 
 else:
     st.warning("No hay datos disponibles para la fecha seleccionada.")
