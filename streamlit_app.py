@@ -151,11 +151,21 @@ df = generar_datos_industriales()
 st.sidebar.title("⚙️ Controles del Sistema")
 
 # Selector de fecha
+fecha_min = df['Fecha'].min().date()
+fecha_max = df['Fecha'].max().date()
+fecha_actual = datetime.now().date()
+
+# Si la fecha actual está fuera del rango, usar la fecha máxima disponible
+if fecha_actual < fecha_min or fecha_actual > fecha_max:
+    fecha_por_defecto = fecha_max
+else:
+    fecha_por_defecto = fecha_actual
+
 fecha_seleccionada = st.sidebar.date_input(
     "Seleccionar Fecha",
-    value=datetime.now().date(),
-    min_value=df['Fecha'].min().date(),
-    max_value=df['Fecha'].max().date()
+    value=fecha_por_defecto,
+    min_value=fecha_min,
+    max_value=fecha_max
 )
 
 # Selector de variables
