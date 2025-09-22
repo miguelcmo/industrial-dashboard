@@ -322,7 +322,56 @@ if not datos_filtrados.empty:
         matriz_correlacion = datos_filtrados[variables_numericas].corr()
         
         st.markdown("### Matriz de Correlación")
-        st.dataframe(matriz_correlacion.style.background_gradient(cmap='RdBu_r', axis=None), use_container_width=True)
+        # Mostrar matriz sin estilos de color (que requieren matplotlib)
+        st.dataframe(matriz_correlacion.round(3), use_container_width=True)
+        
+        # Crear un heatmap simple usando Altair
+        st.markdown("### Visualización de Correlaciones")
+        
+        # Preparar datos para heatmap con Altair
+        corr_data = []
+        for i, var1 in enumerate(variables_numericas):
+            for j, var2 in enumerate(variables_numericas):
+                corr_data.append({
+                    'Variable_X': var1.replace('_', ' ').title(),
+                    'Variable_Y': var2.replace('_', ' ').title(),
+                    'Correlacion': matriz_correlacion.loc[var1, var2],
+                    'X_pos': i,
+                    'Y_pos': j
+                })
+        
+        df_corr = pd.DataFrame(corr_data)
+        
+        # Crear heatmap con Altair
+        heatmap = alt.Chart(df_corr).mark_rect().encode(
+            x=alt.X('Variable_X:O', title='Variables', axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('Variable_Y:O', title='Variables'),
+            color=alt.Color('Correlacion:Q', 
+                          scale=alt.Scale(scheme='redblue', domain=[-1, 1]),
+                          title='Correlación'),
+            tooltip=['Variable_X:O', 'Variable_Y:O', 'Correlacion:Q']
+        ).properties(
+            width=500,
+            height=400,
+            title='Mapa de Calor - Correlaciones entre Variables'
+        )
+        
+        # Añadir texto con valores de correlación
+        text = alt.Chart(df_corr).mark_text(
+            fontSize=8,
+            fontWeight='bold'
+        ).encode(
+            x=alt.X('Variable_X:O'),
+            y=alt.Y('Variable_Y:O'),
+            text=alt.Text('Correlacion:Q', format='.2f'),
+            color=alt.condition(
+                alt.datum.Correlacion > 0.5,
+                alt.value('white'),
+                alt.value('black')
+            )
+        )
+        
+        st.altair_chart(heatmap + text, use_container_width=True)
         
         # Mostrar correlaciones más fuertes
         st.markdown("### Correlaciones Significativas (|r| > 0.5)")
